@@ -288,6 +288,13 @@ if (nomeGeo) {
     <title>{tituloPagina}</title>
     <meta name="description" content={descricaoSEO} />
 
+    {/* Script principal do Adsense (carregado uma vez por página) */}
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3803893738575618"
+      crossorigin="anonymous">
+    </script>
+
     <style>
       .cards-section-title {
         font-size: 1.2rem;
@@ -495,20 +502,26 @@ if (nomeGeo) {
         <h2 class="cards-section-title">Negócios cadastrados</h2>
 
         <ul class="card-grid">
-          {/* 1) CARD1.BUILD – Patrocínio da página */}
+          {/* 1) CARD1.BUILD – Patrocínio da página + Adsense 300x600 */}
           <li class="card-item">
             <article class="card-layout card-layout-highlight">
-              {/* COLUNA ESQUERDA: banner local 300x600 */}
+              {/* COLUNA ESQUERDA: bloco Adsense 300x600 */}
               <div class="card-media">
-                <img
-                  src="/img/banner-300x600.2.jpg"
-                  alt="Espaço de Patrocínio 300x600"
-                  style="max-width:100%; max-height:100%; object-fit:cover;"
-                  loading="lazy"
-                />
+                {/* SP-MAISPERTO-11-2025-ADSENSE */}
+                <ins
+                  class="adsbygoogle"
+                  style="display:block"
+                  data-ad-client="ca-pub-3803893738575618"
+                  data-ad-slot="2377366455"
+                  data-ad-format="auto"
+                  data-full-width-responsive="true">
+                </ins>
+                <script>
+                  {`(adsbygoogle = window.adsbygoogle || []).push({});`}
+                </script>
               </div>
 
-              {/* COLUNA DIREITA: texto dinâmico */}
+              {/* COLUNA DIREITA: texto dinâmico + CTA */}
               <div class="card-content">
                 <div class="card-badge">Patrocinador Destaque</div>
                 <h3 class="card-title">
@@ -523,8 +536,18 @@ if (nomeGeo) {
                 <p class="card-text">
                   Entre em contato com a equipe MAISPERTO para reservar este
                   espaço e ativar sua campanha combinando anúncios locais,
-                  TikTags e, no futuro, blocos Adsense 300x600 alinhados ao seu
-                  objetivo de vendas.
+                  TikTags e blocos Adsense 300x600 alinhados ao seu objetivo de
+                  vendas.
+                </p>
+                <p class="card-text">
+                  <a
+                    href={`https://maisperto.com.br/anunciar/?url=/${cleanSlug}`}
+                    style="display:inline-block; margin-top:0.5rem; padding:0.65rem 1.2rem; background:#0070f3; color:white; border-radius:0.5rem; text-decoration:none; font-weight:600;"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Quero anunciar nesta página
+                  </a>
                 </p>
               </div>
             </article>

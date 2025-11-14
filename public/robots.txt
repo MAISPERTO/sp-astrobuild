@@ -1,0 +1,18 @@
+User-agent: *
+Allow: /
+
+# Evitar indexar arquivos internos do Astro
+Disallow: /_astro/
+Disallow: /assets/
+
+# Evitar indexar parâmetros e variações
+Disallow: /*?*
+Disallow: /*&*
+
+# Evitar páginas internas (futuras rotas privadas)
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+
+# Informar onde está o sitemap (vou te gerar depois também)
+Sitemap: https://sp.maisperto.com.br/sitemap.xml
