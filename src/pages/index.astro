@@ -1,16 +1,162 @@
 ---
+import client from '../lib/directus';
+import { readItems } from '@directus/sdk';
 
+// Carrega bairros e categorias para a home
+const bairros = await client.request(
+  readItems('mp_bairros', {
+    filter: {
+      ativo: { _eq: true },
+    },
+    fields: ['id', 'nome_bairro', 'slug_bairro'],
+    sort: ['nome_bairro'],
+    limit: -1,
+  })
+);
+
+const categorias = await client.request(
+  readItems('mp_categorias_locais', {
+    filter: {
+      ativo: { _eq: true },
+    },
+    fields: ['id', 'nome_nicho', 'full_slug_nicho'],
+    sort: ['nome_nicho'],
+    limit: -1,
+  })
+);
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>São Paulo • Negócios Locais MAISPERTO</title>
+    <meta
+      name="description"
+      content="Descubra negócios locais, serviços e profissionais em São Paulo. Navegue por bairros e nichos para encontrar exatamente o que precisa."
+    />
+  </head>
+  <body
+    style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 2rem; background: #f5f5f7;"
+  >
+    <main style="max-width: 960px; margin: 0 auto;">
+      <header style="margin-bottom: 1.5rem;">
+        {/* Breadcrumbs simples da home */}
+        <nav
+          aria-label="Você está em"
+          style="margin-bottom: 0.5rem; font-size: 0.85rem; color: #777; display:flex; align-items:center; gap:4px;"
+        >
+          <a
+            href="/"
+            style="display:inline-flex; align-items:center; text-decoration:none; color:#555; margin-right:4px;"
+            aria-label="Página inicial de São Paulo"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 11L12 4L20 11V20C20 20.552 19.552 21 19 21H5C4.448 21 4 20.552 4 20V11Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M10 21V14H14V21"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </a>
+
+          <span style="font-weight: 600; color: #333;">São Paulo</span>
+        </nav>
+
+        <p style="margin: 0 0 0.25rem 0; font-size: 0.85rem; color: #666;">
+          São Paulo • Negócios Locais MAISPERTO
+        </p>
+        <h1 style="margin: 0 0 0.5rem 0; font-size: 1.8rem;">
+          Encontre negócios locais por bairro e nicho
+        </h1>
+        <p style="margin: 0; color: #555;">
+          Versão inicial de testes conectada ao Directus. Primeiro escolha o
+          nicho da cidade, e depois aplique o filtro por bairro ou região na
+          URL.
+        </p>
+      </header>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.2rem; margin-bottom: 0.75rem;">
+          Bairros cadastrados em São Paulo
+        </h2>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color:#666;">
+          Estes são os bairros e regiões já cadastrados. Nas próximas etapas,
+          cada nicho poderá ser combinado com um bairro na URL, por exemplo:
+          <br />
+          <code>/servicos-casa-e-construcao/moema</code>
+        </p>
+        <ul
+          style="list-style:none; padding:0; margin:0; display:flex; flex-wrap:wrap; gap:0.4rem;"
+        >
+          {bairros.map((b) => (
+            <li
+              style="background:#fff; border-radius:999px; border:1px solid #ddd; padding:0.25rem 0.75rem; font-size:0.85rem;"
+            >
+              {b.nome_bairro}
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 style="font-size: 1.2rem; margin-bottom: 0.75rem;">
+          Categorias locais (navegue por nichos)
+        </h2>
+        <p style="margin: 0 0 0.75rem 0; font-size: 0.9rem; color:#666;">
+          Clique em um nicho para ver a cidade inteira. Depois, você poderá usar
+          URLs como:
+          <br />
+          <code>/[full_slug_nicho]/[bairro-ou-regiao]</code>
+        </p>
+
+        <ul
+          style="list-style:none; padding:0; margin:0; display:grid; grid-template-columns:1fr; gap:0.75rem;"
+        >
+          {categorias.map((cat) => (
+            <li>
+              <article
+                style="background:#fff; border-radius:0.75rem; border:1px solid #ddd; padding:0.75rem 1rem;"
+              >
+                <h3 style="margin:0 0 0.25rem 0; font-size:1.05rem;">
+                  <a
+                    href={`/${cat.full_slug_nicho}`}
+                    style="color:#005bbb; text-decoration:none;"
+                  >
+                    {cat.nome_nicho}
+                  </a>
+                </h3>
+                <p style="margin:0; font-size:0.85rem; color:#666;">
+                  URL base do nicho:{' '}
+                  <code>{`/${cat.full_slug_nicho}`}</code>
+                </p>
+              </article>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <footer style="font-size: 0.8rem; color: #888;">
+        <p style="margin: 0;">
+          MVP • Dados carregados via Directus (mp_bairros e mp_categorias_locais).
+          Combinações nicho + bairro serão resolvidas pela rota dinâmica.
+        </p>
+      </footer>
+    </main>
+  </body>
 </html>

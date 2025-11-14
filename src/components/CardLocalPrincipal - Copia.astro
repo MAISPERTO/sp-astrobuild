@@ -1,0 +1,76 @@
+---
+interface Props {
+  titulo: string;
+  descricao: string;
+  imagem?: string;
+  url?: string;
+  badge?: string;
+}
+
+const {
+  titulo,
+  descricao,
+  imagem = "/img/banner-300x600.webp.jpg", // fallback
+  url = "#",
+  badge
+} = Astro.props;
+---
+
+<article class="w-full px-4 mt-8">
+  <div
+    class="mx-auto max-w-4xl bg-white shadow rounded-xl p-4 md:p-6 
+           grid grid-cols-1 md:grid-cols-[300px_1fr] gap-6"
+  >
+    {/* COLUNA ESQUERDA — FOTO / FUTURO VÍDEO (300x600) */}
+    <a href={url} class="flex justify-center" aria-label={titulo}>
+      <div class="relative">
+        <img
+          src={imagem}
+          alt={titulo}
+          class="w-[300px] h-[600px] object-cover rounded-md shadow-sm border
+                 group-hover:opacity-90 transition"
+          loading="lazy"
+        />
+        {badge && (
+          <span
+            class="absolute top-2 left-2 bg-emerald-600 text-white text-xs font-semibold
+                   px-2 py-1 rounded-full shadow"
+          >
+            {badge}
+          </span>
+        )}
+      </div>
+    </a>
+
+    {/* COLUNA DIREITA — CONTEÚDO + CTAs */}
+    <div class="flex flex-col justify-center">
+      <a href={url} class="hover:underline decoration-emerald-600">
+        <h2 class="text-xl md:text-2xl font-bold text-gray-900 mb-2">
+          {titulo}
+        </h2>
+      </a>
+
+      <p class="text-gray-700 leading-relaxed mb-4">
+        {descricao}
+      </p>
+
+      <div class="flex flex-wrap gap-3 mt-1">
+        <a
+          href={url}
+          class="inline-block bg-emerald-600 hover:bg-emerald-700 text-white 
+                 font-semibold px-4 py-2 rounded-lg shadow-sm transition"
+        >
+          Ver detalhes
+        </a>
+
+        <a
+          href={url}
+          class="inline-block border border-gray-300 text-gray-800 
+                 hover:bg-gray-50 px-4 py-2 rounded-lg text-sm font-medium transition"
+        >
+          Falar com o responsável
+        </a>
+      </div>
+    </div>
+  </div>
+</article>

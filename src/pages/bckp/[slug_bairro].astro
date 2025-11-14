@@ -1,0 +1,120 @@
+---
+import client from '../lib/directus';
+import { readItems } from '@directus/sdk';
+
+// 1) Gera as rotas estáticas para cada bairro
+export async function getStaticPaths() {
+  const bairros = await client.request(
+    readItems('mp_bairros', {
+      fields: ['slug_bairro', 'nome_bairro'],
+      limit: -1,
+      sort: ['nome_bairro'],
+    })
+  );
+
+  return bairros.map((b) => ({
+    params: { slug_bairro: b.slug_bairro },
+    props: { bairroNome: b.nome_bairro },
+  }));
+}
+
+// 2) Carrega os dados do bairro + lista de setores
+const { slug_bairro } = Astro.params;
+
+const [bairros, setores] = await Promise.all([
+  client.request(
+    readItems('mp_bairros', {
+      filter: { slug_bairro: { _eq: slug_bairro } },
+      limit: 1,
+    })
+  ),
+  client.request(
+    readItems('mp_setores', {
+      limit: 10,
+      sort: ['ordem_prioridade'],
+    })
+  ),
+]);
+
+const bairro = bairros[0] ?? null;
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>
+      {bairro
+        ? `${bairro.nome_bairro} • Negócios Locais MAISPERTO`
+        : 'Bairro não encontrado • Negócios Locais MAISPERTO'}
+    </title>
+  </head>
+  <body style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 2rem; background: #f5f5f7;">
+    <main style="max-width: 960px; margin: 0 auto;">
+      {!bairro ? (
+        <>
+          <p style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">
+            <a href="/" style="color: #3366ee; text-decoration: none;">← Voltar para São Paulo</a>
+          </p>
+          <h1>Bairro não encontrado</h1>
+          <p>Verifique o endereço ou volte para a página inicial.</p>
+        </>
+      ) : (
+        <>
+          <p style="margin: 0 0 0.5rem 0; font-size: 0.9rem;">
+            <a href="/" style="color: #3366ee; text-decoration: none;">← São Paulo</a>
+          </p>
+
+          <h1 style="margin-top: 0; font-size: 2rem;">
+            {bairro.nome_bairro}
+          </h1>
+
+          <p style="color: #555; margin-bottom: 1.5rem;">
+            Em breve: vitrines de negócios locais, classificados e ofertas segmentadas para o bairro {bairro.nome_bairro}.
+          </p>
+
+          {/* Bloco técnico (mantido por enquanto) */}
+          <section style="padding: 1rem 1.25rem; border-radius: 0.75rem; background: white; border: 1px solid #ddd; margin-bottom: 1.5rem;">
+            <h2 style="font-size: 1.1rem; margin-top: 0;">Resumo técnico (debug)</h2>
+            <pre style="font-size: 0.8rem; white-space: pre-wrap; word-wrap: break-word;">
+slug_bairro: {bairro.slug_bairro}
+id: {bairro.id}
+            </pre>
+          </section>
+
+          {/* Setores genéricos (por enquanto) */}
+          <section style="padding: 1rem 1.25rem; border-radius: 0.75rem; background: white; border: 1px solid #ddd;">
+            <h2 style="font-size: 1.1rem; margin-top: 0;">
+              Setores disponíveis neste momento
+            </h2>
+
+            {setores.length === 0 ? (
+              <p style="font-size: 0.9rem; color: #555;">
+                Nenhum setor cadastrado ainda em <code>mp_setores</code>.
+              </p>
+            ) : (
+              <ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                {setores.map((s) => (
+                  <li>
+                    <div
+                      style="padding: 0.6rem 0.75rem; border-radius: 0.75rem; background: #fafafa; border: 1px solid #ddd;"
+                    >
+                      <div style="font-weight: 600; margin-bottom: 0.15rem;">
+                        {s.nome_setor}
+                      </div>
+                      {s.descricao_curta && (
+                        <div style="font-size: 0.9rem; color: #555;">
+                          {s.descricao_curta}
+                        </div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </>
+      )}
+    </main>
+  </body>
+</html>

@@ -1,0 +1,646 @@
+---
+import client from '../lib/directus';
+import { readItems } from '@directus/sdk';
+
+/** Ajuste aqui se o ID da cidade São Paulo em mp_cidades não for 1 */
+const CIDADE_SP_ID = 1;
+/** Base URL do Directus para carregar imagens de arquivo */
+const DIRECTUS_BASE_URL = import.meta.env.PUBLIC_DIRECTUS_URL || "";
+
+/**
+ * 1) getStaticPaths
+ *
+ * Gera rotas como string única:
+ *
+ *  - slug: "servicos-casa-e-construcao"
+ *  - slug: "servicos-casa-e-construcao/moema"
+ *  - slug: "alimentos-e-bebidas/restaurantes/churrascarias/bela-vista"
+ *
+ * O Astro monta a URL exatamente assim:
+ *  - /servicos-casa-e-construcao
+ *  - /servicos-casa-e-construcao/moema
+ *  - /alimentos-e-bebidas/restaurantes/churrascarias/bela-vista
+ */
+export async function getStaticPaths() {
+  // Todas as categorias/nichos ativas
+  const categorias = await client.request(
+    readItems('mp_categorias_locais', {
+      filter: {
+        ativo: { _eq: true },
+      },
+      fields: ['id', 'full_slug_nicho'],
+      limit: -1,
+    })
+  );
+
+  // Todos os bairros/regiões ativos
+  const bairros = await client.request(
+    readItems('mp_bairros', {
+      filter: {
+        ativo: { _eq: true },
+      },
+      fields: ['id', 'slug_bairro', 'nome_bairro'],
+      limit: -1,
+    })
+  );
+
+  const paths: { params: { slug: string } }[] = [];
+
+  for (const cat of categorias) {
+    if (!cat.full_slug_nicho) continue;
+
+    const baseSlug = String(cat.full_slug_nicho).replace(/^\/+|\/+$/g, '');
+
+    // 1) Cidade inteira por nicho
+    paths.push({
+      params: { slug: baseSlug }, // "servicos-casa-e-construcao"
+    });
+
+    // 2) Nicho + cada bairro/região
+    for (const bairro of bairros) {
+      if (!bairro.slug_bairro) continue;
+
+      const bairroSlug = String(bairro.slug_bairro).replace(/^\/+|\/+$/g, '');
+
+      paths.push({
+        params: { slug: `${baseSlug}/${bairroSlug}` },
+        // "servicos-casa-e-construcao/moema"
+      });
+    }
+  }
+
+  return paths;
+}
+
+/**
+ * 2) Lógica da página em si
+ *
+ * Agora `Astro.params.slug` é sempre string.
+ * Ex:
+ *  - "servicos-casa-e-construcao"
+ *  - "servicos-casa-e-construcao/moema"
+ *  - "alimentos-e-bebidas/restaurantes/churrascarias/bela-vista"
+ */
+
+const slugParam = Astro.params.slug as string;
+
+// Garante formato limpo e depois divide
+const cleanSlug = slugParam.replace(/^\/+|\/+$/g, '');
+const parts = cleanSlug.split('/').filter(Boolean);
+
+if (parts.length === 0) {
+  throw Astro.redirect('/404');
+}
+
+let categoryPath = '';
+let geoSlug: string | null = null;
+let categoria: any = null;
+
+// 2.1) Tenta primeiro interpretar a URL inteira como full_slug_nicho
+if (cleanSlug) {
+  const categoriasFull = await client.request(
+    readItems('mp_categorias_locais', {
+      filter: {
+        full_slug_nicho: { _eq: cleanSlug },
+        ativo: { _eq: true },
+      },
+      limit: 1,
+    })
+  );
+  categoria = categoriasFull[0];
+}
+
+if (categoria) {
+  // Ex.: /veiculos-e-transporte/estetica-automotiva/lava-rapido
+  // é um nicho da cidade inteira (sem bairro)
+  categoryPath = cleanSlug;
+} else {
+  // 2.2) Se não achou, assume que o último segmento é bairro/região
+  if (parts.length === 1) {
+    // URL de um único segmento que não é full_slug_nicho válido
+    throw Astro.redirect('/404');
+  }
+
+  geoSlug = parts[parts.length - 1];
+  categoryPath = parts.slice(0, -1).join('/');
+
+  const categoriasEncontradas = await client.request(
+    readItems('mp_categorias_locais', {
+      filter: {
+        full_slug_nicho: { _eq: categoryPath },
+        ativo: { _eq: true },
+      },
+      limit: 1,
+    })
+  );
+
+  categoria = categoriasEncontradas[0];
+
+  if (!categoria) {
+    // Nem full_slug_nicho inteiro, nem prefixo sem o último segmento
+    throw Astro.redirect('/404');
+  }
+}
+
+// 3) Bairro/região (opcional)
+let bairroOuRegiao: any = null;
+
+if (geoSlug) {
+  const bairrosEncontrados = await client.request(
+    readItems('mp_bairros', {
+      filter: {
+        slug_bairro: { _eq: geoSlug },
+        ativo: { _eq: true },
+      },
+      limit: 1,
+    })
+  );
+
+  bairroOuRegiao = bairrosEncontrados[0] ?? null;
+
+  if (!bairroOuRegiao) {
+    // slug geográfico inválido → 404
+    throw Astro.redirect('/404');
+  }
+}
+
+/**
+ * 4) Busca de cards (NÃO gera 404 se estiver vazio)
+ *    Respeitando:
+ *    - cidade_alvo (M2O)
+ *    - aplica_todos_bairros (bool)
+ *    - bairros_relacionados (M2M)
+ *    - aplica_todos_nichos (bool)
+ *    - nichos_locais_relacionados (M2M)
+ *    - categoria_oferta_relacionada (M2O)
+ */
+
+function getId(value: any): number | string | null {
+  if (value == null) return null;
+  if (typeof value === 'number' || typeof value === 'string') return value;
+  if (typeof value === 'object' && 'id' in value) return (value as any).id;
+  return null;
+}
+
+const todosCards = await client
+  .request(
+    readItems('mp_cards_anunciantes', {
+      filter: {
+        ativo: { _eq: true },
+        cidade_alvo: { _eq: CIDADE_SP_ID },
+      },
+      limit: 500,
+      sort: ['sort', 'id'],
+    })
+  )
+  .catch(() => {
+    return [];
+  });
+
+const categoriaId = getId(categoria.id);
+const bairroId = bairroOuRegiao ? getId(bairroOuRegiao.id) : null;
+
+const cards = (todosCards as any[]).filter((card) => {
+  if (!card || card.ativo === false) return false;
+
+  // --- NICHOS / CATEGORIA LOCAL ---
+  const aplicaTodosNichos = !!card.aplica_todos_nichos;
+  let bateNicho = aplicaTodosNichos;
+
+  if (!bateNicho && categoriaId != null) {
+    // M2O: categoria_oferta_relacionada
+    const catRelId = getId(card.categoria_oferta_relacionada);
+    if (catRelId === categoriaId) {
+      bateNicho = true;
+    }
+
+    // M2M: nichos_locais_relacionados
+    if (!bateNicho && Array.isArray(card.nichos_locais_relacionados)) {
+      for (const n of card.nichos_locais_relacionados) {
+        const nId = getId(n);
+        if (nId === categoriaId) {
+          bateNicho = true;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!bateNicho) return false;
+
+  // --- SEM BAIRRO NA URL: basta bater no nicho ---
+  if (!bairroId) return true;
+
+  // --- COM BAIRRO/REGIÃO ---
+  const aplicaTodosBairros = !!card.aplica_todos_bairros;
+
+  if (aplicaTodosBairros) return true;
+
+  if (Array.isArray(card.bairros_relacionados)) {
+    for (const b of card.bairros_relacionados) {
+      const bId = getId(b);
+      if (bId === bairroId) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+});
+
+// 5) Títulos, descrição e textos dinâmicos para o Card1.Build
+
+const nomeCategoria = categoria.nome_nicho ?? 'Negócios locais';
+const nomeGeo = bairroOuRegiao ? bairroOuRegiao.nome_bairro : null;
+
+const tituloPagina = nomeGeo
+  ? `${nomeCategoria} em ${nomeGeo}`
+  : `${nomeCategoria}`;
+
+const descricaoSEO =
+  categoria.seo_meta_description ??
+  (nomeGeo
+    ? `Encontre negócios locais de ${nomeCategoria} no bairro ${nomeGeo}.`
+    : `Encontre negócios locais de ${nomeCategoria} na cidade inteira.`);
+
+// Textos dinâmicos para o card de patrocínio
+const textoGeoResumido = nomeGeo
+  ? `no bairro ${nomeGeo}`
+  : 'em toda a cidade de São Paulo';
+
+const tituloPatrocinio = nomeGeo
+  ? `Seja o patrocinador oficial desta página de ${nomeCategoria} em ${nomeGeo}`
+  : `Seja o patrocinador oficial desta página de ${nomeCategoria} em São Paulo`;
+
+const descricaoPatrocinioCurta = `Este espaço 300x600 é reservado para destacar, em primeira posição, a sua marca de ${nomeCategoria} ${textoGeoResumido}.`;
+
+const descricaoPatrocinioCompleta = `Aqui você pode exibir um criativo no formato 300x600 (imagem, vídeo ou TikTags), atrair clientes do nicho ${
+  nomeCategoria || 'local'
+} e ainda combinar com campanhas externas (Google Ads, YouTube ou redes sociais). A equipe MAISPERTO ajuda você a configurar tudo e medir os resultados.`;
+
+/**
+ * 6) Breadcrumbs
+ */
+
+function slugToLabel(slug: string) {
+  return slug
+    .split('-')
+    .map((s) => (s ? s[0].toUpperCase() + s.slice(1) : ''))
+    .join(' ');
+}
+
+const baseSegments = categoryPath.split('/').filter(Boolean);
+
+type Crumb = { label: string; href: string | null };
+const breadcrumbs: Crumb[] = [];
+
+// Cidade fixa (por enquanto)
+breadcrumbs.push({ label: 'São Paulo', href: '/' });
+
+let accumulated = '';
+for (const seg of baseSegments) {
+  accumulated += (accumulated ? '/' : '') + seg;
+  breadcrumbs.push({
+    label: slugToLabel(seg),
+    href: `/${accumulated}`,
+  });
+}
+
+if (nomeGeo) {
+  breadcrumbs.push({
+    label: nomeGeo,
+    href: null,
+  });
+}
+---
+
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <title>{tituloPagina}</title>
+    <meta name="description" content={descricaoSEO} />
+
+    <style>
+      .cards-section-title {
+        font-size: 1.2rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .card-grid {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 1rem;
+      }
+
+      .card-item {
+        display: flex;
+        justify-content: center;
+      }
+
+      .card-layout {
+        display: flex;
+        flex-direction: column;
+        background: #ffffff;
+        border-radius: 0.75rem;
+        border: 1px solid #ddd;
+        overflow: hidden;
+        width: 100%;
+        max-width: 600px; /* 2 x 300 */
+        min-height: 300px;
+      }
+
+      .card-layout-highlight {
+        border-color: #ffc107;
+        box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.4);
+      }
+
+      .card-media {
+        flex: 0 0 auto;
+        background: #f0f0f0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        color: #777;
+        padding: 0.75rem;
+        min-height: 200px;
+      }
+
+      .card-content {
+        flex: 1 1 auto;
+        padding: 0.75rem 1rem;
+      }
+
+      .card-title {
+        margin: 0 0 0.4rem 0;
+        font-size: 1.05rem;
+      }
+
+      .card-text {
+        margin: 0 0 0.5rem 0;
+        font-size: 0.9rem;
+        color: #555;
+      }
+
+      .card-text-link a {
+        font-size: 0.9rem;
+        color: #0066cc;
+        text-decoration: none;
+      }
+
+      .card-text-link a:hover {
+        text-decoration: underline;
+      }
+
+      .card-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.1rem 0.5rem;
+        border-radius: 999px;
+        background: #fff7e0;
+        color: #8a5a00;
+        font-size: 0.72rem;
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+      }
+
+      /* Tablet / Desktop: 2 colunas internas 300x600 (mídia + texto) */
+      @media (min-width: 768px) {
+        .card-layout {
+          flex-direction: row;
+          width: 600px;
+          min-height: 600px; /* alvo 300x600 para cada lado */
+        }
+
+        .card-media {
+          width: 300px;
+          min-height: 600px;
+          padding: 1rem;
+        }
+
+        .card-content {
+          width: 300px;
+          min-height: 600px;
+          padding: 1rem 1.25rem;
+        }
+      }
+    </style>
+  </head>
+  <body
+    style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 2rem; background: #f5f5f7;"
+  >
+    <main style="max-width: 960px; margin: 0 auto;">
+      <header style="margin-bottom: 1.5rem;">
+        {/* Breadcrumbs */}
+        <nav
+          aria-label="Você está em"
+          style="margin-bottom: 0.5rem; font-size: 0.85rem; color: #777; display:flex; align-items:center; flex-wrap:wrap; gap:4px;"
+        >
+          {/* Casinha SVG minimalista, sem círculo */}
+          <a
+            href="/"
+            style="display:inline-flex; align-items:center; text-decoration:none; color:#555; margin-right:4px;"
+            aria-label="Voltar para a página inicial de São Paulo"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="14"
+              height="14"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 11L12 4L20 11V20C20 20.552 19.552 21 19 21H5C4.448 21 4 20.552 4 20V11Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M10 21V14H14V21"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </a>
+
+          {/* Breadcrumbs de cidade + nichos + bairro/região */}
+          {breadcrumbs.map((crumb, index) => {
+            const isLast = index === breadcrumbs.length - 1;
+            return (
+              <>
+                {index === 0 ? null : (
+                  <span style="margin: 0 0.25rem;">›</span>
+                )}
+
+                {!isLast && crumb.href ? (
+                  <a
+                    href={crumb.href}
+                    style="color: #555; text-decoration: none;"
+                  >
+                    {crumb.label}
+                  </a>
+                ) : (
+                  <span style={isLast ? 'font-weight: 600; color: #333;' : ''}>
+                    {crumb.label}
+                  </span>
+                )}
+              </>
+            );
+          })}
+        </nav>
+
+        <p style="margin: 0 0 0.25rem 0; font-size: 0.85rem; color: #666;">
+          Negócios Locais
+        </p>
+        <h1 style="margin: 0 0 0.5rem 0; font-size: 1.8rem;">
+          {nomeCategoria}
+          {nomeGeo ? ` em ${nomeGeo}` : ''}
+        </h1>
+
+        {categoria.descricao_curta_nicho && (
+          <p style="margin: 0; color: #555;">
+            {categoria.descricao_curta_nicho}
+          </p>
+        )}
+
+        {nomeGeo ? (
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #777;">
+            Página combinando o nicho <strong>{nomeCategoria}</strong> com o
+            bairro/região <strong>{nomeGeo}</strong>.
+          </p>
+        ) : (
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem; color: #777;">
+            Esta página mostra a cidade inteira para o nicho{' '}
+            <strong>{nomeCategoria}</strong>. Para usar um filtro geográfico,
+            você pode acessar URLs como:
+            <br />
+            <code>/{categoryPath}/moema</code> ou{' '}
+            <code>/{categoryPath}/bela-vista</code>
+          </p>
+        )}
+      </header>
+
+      <section style="margin-bottom: 2rem;">
+        <h2 class="cards-section-title">Negócios cadastrados</h2>
+
+        <ul class="card-grid">
+          {/* 1) CARD1.BUILD – Patrocínio da página (sempre em primeiro lugar) */}
+          <li class="card-item">
+            <article class="card-layout card-layout-highlight">
+              {/* COLUNA ESQUERDA: 300x600 – espaço para criativo / Adsense / vídeo */}
+              <div class="card-media">
+                <span>
+                  Espaço Premium 300x600 para o patrocinador oficial desta
+                  página ({nomeCategoria}
+                  {nomeGeo ? ` em ${nomeGeo}` : ' em São Paulo'}).
+                </span>
+              </div>
+
+              {/* COLUNA DIREITA: texto dinâmico convidando para patrocinar */}
+              <div class="card-content">
+                <div class="card-badge">Patrocinador Destaque</div>
+                <h3 class="card-title">
+                  {tituloPatrocinio}
+                </h3>
+                <p class="card-text">
+                  {descricaoPatrocinioCurta}
+                </p>
+                <p class="card-text">
+                  {descricaoPatrocinioCompleta}
+                </p>
+                <p class="card-text">
+                  Entre em contato com a equipe MAISPERTO para reservar este
+                  espaço e ativar sua campanha combinando anúncios locais,
+                  TikTags e, no futuro, blocos Adsense 300x600 alinhados ao seu
+                  objetivo de vendas.
+                </p>
+              </div>
+            </article>
+          </li>
+
+          {/* 2) CARDS VINDOS DO DIRECTUS */}
+          {cards.map((card) => {
+            const imagemId = getId(card.imagem_card_file);
+            const hasImage =
+              imagemId && typeof imagemId === 'string' && DIRECTUS_BASE_URL;
+
+            return (
+              <li class="card-item">
+                <article class="card-layout">
+                  {/* COLUNA ESQUERDA: IMAGEM / VÍDEO DO CARD (300x600) */}
+                  <div class="card-media">
+                    {hasImage ? (
+                      <img
+                        src={`${DIRECTUS_BASE_URL}/assets/${imagemId}`}
+                        alt={card.titulo_card ?? 'Imagem do anúncio'}
+                        style="max-width:100%; max-height:100%; object-fit:cover;"
+                        loading="lazy"
+                      />
+                    ) : (
+                      <span>Imagem / vídeo do anúncio (300x600)</span>
+                    )}
+                  </div>
+
+                  {/* COLUNA DIREITA: TEXTO / LINK */}
+                  <div class="card-content">
+                    <h3 class="card-title">
+                      {card.titulo_card ?? 'Anúncio sem título'}
+                    </h3>
+
+                    {card.descricao_curta && (
+                      <p class="card-text">
+                        {card.descricao_curta}
+                      </p>
+                    )}
+
+                    {card.descricao_completa && (
+                      <p class="card-text">
+                        {card.descricao_completa}
+                      </p>
+                    )}
+
+                    {card.url_destino && (
+                      <p class="card-text card-text-link">
+                        <a
+                          href={card.url_destino}
+                          target="_blank"
+                          rel="noopener noreferrer nofollow sponsored"
+                        >
+                          Visitar site do anunciante
+                        </a>
+                      </p>
+                    )}
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+
+        {cards.length === 0 && (
+          <p style="margin-top: 0.75rem; color: #777;">
+            Ainda não há outros negócios cadastrados para este nicho
+            {nomeGeo ? ` em ${nomeGeo}` : ''} além do espaço de patrocínio
+            principal. Esta página já está ativa para SEO e será preenchida
+            conforme novos anúncios forem publicados.
+          </p>
+        )}
+      </section>
+
+      <footer style="font-size: 0.8rem; color: #888;">
+        <p style="margin: 0;">
+          MVP de rotas dinâmicas: esta página é sempre gerada se a combinação
+          de <code>full_slug_nicho</code> e (opcionalmente){' '}
+          <code>slug_bairro</code> existir no Directus, independentemente de
+          haver ou não cards ativos.
+        </p>
+      </footer>
+    </main>
+  </body>
+</html>
