@@ -27,6 +27,7 @@ export async function getStaticPaths() {
     readItems('mp_bairros', {
       filter: {
         ativo: { _eq: true },
+      status: { _eq: 'published' },
       },
       fields: ['id', 'slug_bairro', 'nome_bairro'],
       limit: -1,
@@ -130,6 +131,7 @@ if (geoSlug) {
       filter: {
         slug_bairro: { _eq: geoSlug },
         ativo: { _eq: true },
+        status: { _eq: 'published' },
       },
       limit: 1,
     })
